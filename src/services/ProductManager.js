@@ -1,158 +1,135 @@
-const fs = require('fs');
+import { writeFile, readFile } from "fs/promises";
+import { resolve } from "path";
 
 class ProductManager {
-  constructor(filePath) {
-    this.products = [];
-    this.productIdCounter = 1;
-    this.path = filePath;
-    this.loadFromFile();
-  }
+    #products;
+    #path;
 
-  // Método para cargar los productos desde el archivo
-  loadFromFile() {
-    try {
-      const data = fs.readFileSync(this.path, 'utf8');
-      this.products = JSON.parse(data);
-
-      // Verificar si el archivo contiene un arreglo válido de productos
-      if (!Array.isArray(this.products)) {
-        throw new Error('El archivo products.json no contiene un arreglo válido.');
-      }
-
-      // Actualizar el contador de IDs basado en el último producto en la lista
-      if (this.products.length > 0) {
-        const lastProduct = this.products[this.products.length - 1];
-        this.productIdCounter = lastProduct.id + 1;
-      }
-    } catch (error) {
-      // Si el archivo no existe o está vacío, inicializar el arreglo de productos
-      this.products = [];
-    }
-  }
-
-  // Método para guardar los productos en el archivo
-  saveToFile() {
-    const data = JSON.stringify(this.products, null, 2);
-    fs.writeFileSync(this.path, data, 'utf8');
-  }
-
-  // Método para agregar un nuevo producto
-  addProduct(productData) {
-    // Extraer los datos del objeto productData
-    const { id, codigo, nombre, categoria, descripcion, img, precio, stock } = productData;
-
-    // Validar que todos los campos sean obligatorios
-    if (!id || !codigo || !nombre || !categoria || !descripcion || !img || !precio || !stock) {
-      throw new Error('Todos los campos son obligatorios.');
+    constructor() {
+        this.#path = resolve("./src/data/products.json");
+        this.#products = [];
     }
 
-    // Verificar si el código ya existe en algún producto
-    const existingProduct = this.products.find((product) => product.codigo === codigo);
-    if (existingProduct) {
-      throw new Error('El código del producto ya está en uso.');
-    }
+    addProduct = async (product) => {
+        await this.#loadProducts();
 
-    // Crear un nuevo producto con los datos proporcionados y el contador de IDs
-    const newProduct = {
-      id: id,
-      codigo: codigo,
-      nombre: nombre,
-      categoria: categoria,
-      descripcion: descripcion,
-      img: img,
-      precio: precio,
-      stock: stock,
+        if (!product?.title || !isNaN(product.title)) {
+            throw new Error(`El titulo es ${product.title}, cuando debe ser un string`);
+        }
+
+        if (!product?.description || !isNaN(product.description)) {
+            throw new Error(`La description es ${product.title}, cuando debe ser un string`);
+        }
+
+        if (!product?.code || !isNaN(product.code)) {
+            throw new Error(`El codigo es ${product.code}, cuando debe ser un string`);
+        }
+
+        if (!product?.price || isNaN(product.price)) {
+            throw new Error(`El precio es ${product.price}, cuando debe ser un int`);
+        }
+
+        if (!product?.status || !typeof product.status == "boolean") {
+            product.status = true;
+        }
+
+        if (!product?.stock || isNaN(product.stock)) {
+            throw new Error(`El stock es ${product.stock}, cuando debe ser un int`);
+        }
+
+        if (!product?.category || !isNaN(product.category)) {
+            throw new Error(`El category es ${product.category}, cuando debe ser un string`);
+        }
+
+        product.thumbnails = product?.thumbnails
+            ? [`http://localhost:8080/assets/${product.thumbnails}`]
+            : [];
+
+        const codeExists = this.#products.some((p) => p.code === product.code);
+        if (codeExists) {
+            throw new Error(`El codigo ya existe`);
+        }
+
+        const id = Math.max(...this.#products.map((p) => p.id)) + 1 ?? 1;
+
+        const newProduct = { id: id == -Infinity ? 1 : id, ...product };
+
+        this.#products.push(newProduct);
+
+        await writeFile(this.#path, JSON.stringify(this.#products, null, "\t"));
+
+        return newProduct;
     };
 
-    // Incrementar el contador de IDs para el siguiente producto
-    this.productIdCounter++;
+    getProducts = async () => {
+        await this.#loadProducts();
 
-    // Agregar el nuevo producto al arreglo de productos
-    this.products.push(newProduct);
-
-    // Guardar los productos en el archivo
-    this.saveToFile();
-  }
-
-  // Método para obtener todos los productos
-  getProducts() {
-    // Cargar los productos desde el archivo
-    this.loadFromFile();
-
-    // Retornar todos los productos
-    return this.products;
-  }
-
-  // Método para obtener un producto por su ID
-  getProductById(productId) {
-    // Cargar los productos desde el archivo
-    this.loadFromFile();
-
-    // Buscar el producto por ID
-    const product = this.products.find((product) => product.id === productId);
-
-    // Si no se encuentra el producto, mostrar un error en la consola
-    if (!product) {
-      console.error('Producto no encontrado.');
-    }
-
-    // Retornar el producto encontrado
-    return product;
-  }
-
-  // Método para actualizar un producto existente
-  updateProduct(productId, updatedProductData) {
-    // Cargar los productos desde el archivo
-    this.loadFromFile();
-
-    // Buscar el índice del producto a actualizar
-    const index = this.products.findIndex((product) => product.id === productId);
-
-    // Si el producto no se encuentra, mostrar un error en la consola
-    if (index === -1) {
-      console.error('Producto no encontrado.');
-      return;
-    }
-
-    // Extraer los datos del objeto updatedProductData
-    const { id, codigo, nombre, categoria, descripcion, img, precio, stock } = updatedProductData;
-
-    // Crear un objeto actualizado con los datos proporcionados
-    const updatedProduct = {
-      id: id,
-      codigo: codigo,
-      nombre: nombre,
-      categoria: categoria,
-      descripcion: descripcion,
-      img: img,
-      precio: precio,
-      stock: stock,
+        return this.#products;
     };
 
-    // Actualizar el producto en el arreglo
-    this.products[index] = updatedProduct;
+    getProductById = async (pid) => {
+        await this.productExists(pid);
 
-    // Guardar los productos actualizados en el archivo
-    this.saveToFile();
-  }
+        return this.#products.find((p) => p.id == pid) ?? console.error(`Not found`);
+    };
 
-  // Método para eliminar un producto por su ID
-  deleteProduct(productId) {
-    // Cargar los productos desde el archivo
-    this.loadFromFile();
+    updateProduct = async (product) => {
+        await this.productExists(product.id);
 
-    // Filtrar los productos excluyendo el producto a eliminar
-    this.products = this.products.filter((product) => product.id !== productId);
+        this.#products = this.#products.map((p) => {
+            return p.id == product.id
+                ? {
+                      id: p.id,
+                      title: product?.title ?? p.title,
+                      description: product?.description ?? p.description,
+                      code: product?.code ?? p.code,
+                      price: product?.price ?? p.price,
+                      status: product?.status ?? p.status,
+                      stock: product?.stock ?? p.stock,
+                      category: product?.category ?? p.category,
+                      thumbnails: product?.thumbnails
+                          ? [
+                                ...p.thumbnails,
+                                `http://localhost:8080/assets/${product.thumbnails}`
+                            ]
+                          : [...p.thumbnails]
+                  }
+                : p;
+        });
 
-    // Guardar los productos actualizados en el archivo
-    this.saveToFile();
-  }
+        await writeFile(this.#path, JSON.stringify(this.#products, null, "\t"));
+
+        return this.#products.filter((p) => p.id == product.id);
+    };
+
+    deleteProduct = async (pid) => {
+        await this.productExists(pid);
+
+        this.#products = this.#products.filter((p) => p.id != pid);
+
+        await writeFile(this.#path, JSON.stringify(this.#products, null, "\t"));
+    };
+
+    productExists = async (pid) => {
+        await this.#loadProducts();
+
+        if (!pid || isNaN(pid)) {
+            throw new Error(`El pid es ${pid}, cuando tiene que ser un int`);
+        }
+
+        const existsProduct = this.#products.some((p) => p.id == pid);
+        if (!existsProduct) {
+            throw new Error(`No existe el producto con id: ${pid}`);
+        }
+    };
+
+    #loadProducts = async () => {
+        try {
+            this.#products = JSON.parse(await readFile(this.#path, "utf-8"));
+        } catch {
+            this.#products = [];
+        }
+    };
 }
-
-const filePath = './data/products.json';
-const manager = new ProductManager(filePath);
-
-module.exports = ProductManager;
-
-
-  
+const productManager = new ProductManager();
+export default productManager;
